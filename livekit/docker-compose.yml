@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:6-alpine
+    restart: unless-stopped
+    env_file:
+      - .env
+      
+  livekit-server:
+    image: livekit/livekit-server:v1.8.4
+    ports:
+      - "7880:7880"       # signaling
+      - "7881:7881"       # WebRTC TCP
+      - "7882:7882/udp"   # WebRTC UDP
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - coturn
+    env_file:
+      - .env
+      
+  coturn:
+    image: coturn/coturn
+    ports:
+      - "3478:3478"
+      - "3478:3478/udp"
+      - "5349:5349"
+      - "5349:5349/udp"
+    command: >
+      --min-port=49152 --max-port=65535
+      --user=${TURN_USER}:${TURN_PASSWORD}
+      --realm=livekit
+      --external-ip=${EXTERNAL_IP}
+    restart: unless-stopped
+    env_file:
+      - .env
+      
+  voice-agent:
+    build: ./voice-pipeline-agent-python
+    hostname: livekit-server
+    depends_on:
+      - livekit-server
+    environment:
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - LIVEKIT_API_KEY=APIr8z5FbzHNaaL
+      - LIVEKIT_API_SECRET=1knnshYGemewGAfwcpAeG8NSwmP2EukSeVu0Io0Bz2WC
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CARTESIA_API_KEY=${CARTESIA_API_KEY}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+    env_file:
+      - .env
+
+  voice-ui:
+    build: ./voice-assistant-frontend
+    depends_on:
+      - livekit-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_LIVEKIT_URL=ws://livekit-server:7880
+      - NEXT_PUBLIC_API_KEY=${LIVEKIT_API_KEY}
+      - NEXT_PUBLIC_API_SECRET=${LIVEKIT_API_SECRET}
+
+    env_file:
+      - .env
